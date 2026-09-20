@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "emila.taskbar",
+  "name": "Taskbar",
+  "version": "1.0.0",
+  "author": "emila",
+  "description": "A real taskbar for the Omarchy bar: per-monitor window list with icons, minimize, hover previews, and auto-fit sizing",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Taskbar.qml"
+  },
+  "barWidget": {
+    "displayName": "Taskbar",
+    "description": "A real taskbar for the Omarchy bar: per-monitor window list with icons, minimize, hover previews, and auto-fit sizing",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": {
+      "maxItemWidth": 170,
+      "centerMargin": 200
+    },
+    "schema": [
+      {
+        "key": "maxItemWidth",
+        "type": "number",
+        "label": "Max item width (px)"
+      },
+      {
+        "key": "centerMargin",
+        "type": "number",
+        "label": "Reserved space before center section (px)"
+      }
+    ]
+  }
+}
