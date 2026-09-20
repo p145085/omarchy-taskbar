@@ -6,20 +6,34 @@ import qs.Commons
 import qs.Ui
 
 // Open-windows taskbar, filtered to the monitor this bar instance lives on.
-// Hyprland has no native minimize, so "minimizing" a window here means
-// parking it on a dedicated hidden special workspace (special:taskbardock);
-// clicking its entry again brings it back to whichever workspace is
-// currently focused and refocuses it. Window data comes from
-// Hyprland.workspaces[].toplevels rather than the generic Wayland
-// ToplevelManager because dispatching hl.dsp.window.move/close needs each
-// window's Hyprland address (only the Hyprland-specific toplevel exposes it,
-// via lastIpcObject), and because the generic Wayland ToplevelManager
-// singleton is not reachable from a third-party plugin's QML context.
+// Window data comes from Hyprland.workspaces[].toplevels rather than the
+// generic Wayland ToplevelManager because dispatching hl.dsp.window.move/
+// close needs each window's Hyprland address (only the Hyprland-specific
+// toplevel exposes it, via lastIpcObject), and because the generic Wayland
+// ToplevelManager singleton is not reachable from a third-party plugin's
+// QML context.
+//
+// Hyprland has no native minimize, so "hiding" a window here means parking
+// it on a special workspace named after its own address (one dedicated
+// special workspace per window, never shared) and restoring it to whichever
+// workspace is currently focused on click. It has to be one special
+// workspace per window rather than a single shared one: hl.dsp.window.move
+// unconditionally reveals the target special workspace on the window's
+// monitor as a side effect (there is no way to move a window into a special
+// workspace without it popping onto screen), so a shared hiding spot would
+// flash every other window already parked there back into view too. Each
+// hide therefore also issues hl.dsp.workspace.toggle_special right after
+// the move, in the same shell invocation (Quickshell's execDetached has no
+// ordering guarantee across separate dispatches), to tuck that one
+// window's private workspace back out of sight. toggle_special only takes
+// its target as a positional string argument with no "special:" prefix -
+// passing it as a `{ name = ... }` table silently no-ops onto Hyprland's
+// own default special workspace instead, which is what made an earlier
+// attempt at this look like windows were getting grouped together.
 BarWidget {
   id: root
   moduleName: "emila.taskbar"
 
-  readonly property string minimizedWorkspaceName: "special:taskbardock"
   readonly property int maxItemWidth: Number(setting("maxItemWidth", 170))
   readonly property int minItemWidth: 64
   readonly property int iconOnlyThreshold: 64
@@ -87,33 +101,70 @@ BarWidget {
     return "address:" + addr
   }
 
-  function isMinimized(t) {
-    return !!(t.lastIpcObject && t.lastIpcObject.workspace && t.lastIpcObject.workspace.name === root.minimizedWorkspaceName)
+  function hiddenWorkspaceName(t) {
+    var addr = t.lastIpcObject ? String(t.lastIpcObject.address || "") : ""
+    return "taskbarhide" + addr.replace(/[^a-zA-Z0-9]/g, "")
   }
 
+  // t.lastIpcObject.workspace.name goes just as stale as focusHistoryID did
+  // (observed staying "special:..." long after hyprctl clients itself
+  // reported the window back on a normal workspace), so this reads the
+  // toplevel's own reactive workspace pointer instead of the snapshot field.
+  function isHidden(t) {
+    var ws = t.workspace
+    return !!(ws && ws.name === ("special:" + root.hiddenWorkspaceName(t)))
+  }
+
+  // t.lastIpcObject.focusHistoryID goes stale (observed staying nonzero long
+  // after hyprctl clients itself reported 0 for the same window), so focus
+  // is checked against Hyprland's own reactive activeToplevel instead of
+  // that nested snapshot field.
   function isFocused(t) {
-    return !!(t.lastIpcObject && t.lastIpcObject.focusHistoryID === 0) && !root.isMinimized(t)
+    return Hyprland.activeToplevel === t && !root.isHidden(t)
+  }
+
+  // Runs one or more Lua dispatch calls as a single detached shell command
+  // (chained with &&) so their relative order is guaranteed - execDetached
+  // spawns each call fire-and-forget, with no ordering promise across
+  // separate invocations.
+  function runHypr(luaCalls) {
+    if (!root.bar) return
+    var cmd = luaCalls.map(function(c) { return "hyprctl dispatch " + Util.shellQuote(c) }).join(" && ")
+    root.bar.run(cmd)
+    refreshTimer.restart()
   }
 
   function dispatch(luaCall) {
-    if (!root.bar) return
-    root.bar.run("hyprctl dispatch " + Util.shellQuote(luaCall))
-    refreshTimer.restart()
+    root.runHypr([luaCall])
   }
 
   function focusWindow(t) {
     root.dispatch("hl.dsp.focus({ window = \"" + root.addressSelector(t) + "\" })")
   }
 
-  function minimizeWindow(t) {
-    root.dispatch("hl.dsp.window.move({ window = \"" + root.addressSelector(t) + "\", workspace = \"" + root.minimizedWorkspaceName + "\", silent = true })")
+  function hideWindow(t) {
+    var name = root.hiddenWorkspaceName(t)
+    var sel = root.addressSelector(t)
+    root.runHypr([
+      "hl.dsp.window.move({ window = \"" + sel + "\", workspace = \"special:" + name + "\", silent = true })",
+      "hl.dsp.workspace.toggle_special(\"" + name + "\")"
+    ])
   }
 
-  function restoreWindow(t) {
-    var targetWs = Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : 1
+  function showWindow(t) {
+    // Hyprland.focusedWorkspace tracks wherever the last-activated toplevel
+    // sits, and a just-hidden window can still count as that (nothing else
+    // was ever told to take focus while it was tucked away) - so it can
+    // resolve to the window's own special workspace, making this a no-op
+    // move that leaves it stuck there. The monitor's own activeWorkspace
+    // isn't contaminated by that and is also the right scope: restore onto
+    // whichever workspace is current on this bar's own monitor.
+    var targetWs = root.myMonitor && root.myMonitor.activeWorkspace ? root.myMonitor.activeWorkspace.id : 1
     var sel = root.addressSelector(t)
-    root.dispatch("hl.dsp.window.move({ window = \"" + sel + "\", workspace = \"" + targetWs + "\", silent = true })")
-    root.dispatch("hl.dsp.focus({ window = \"" + sel + "\" })")
+    root.runHypr([
+      "hl.dsp.window.move({ window = \"" + sel + "\", workspace = \"" + targetWs + "\", silent = true })",
+      "hl.dsp.focus({ window = \"" + sel + "\" })"
+    ])
   }
 
   function closeWindow(t) {
@@ -121,8 +172,8 @@ BarWidget {
   }
 
   function pressEntry(t) {
-    if (root.isMinimized(t)) root.restoreWindow(t)
-    else if (root.isFocused(t)) root.minimizeWindow(t)
+    if (root.isHidden(t)) root.showWindow(t)
+    else if (root.isFocused(t)) root.hideWindow(t)
     else root.focusWindow(t)
   }
 
@@ -205,7 +256,7 @@ BarWidget {
 
   function capturePreview() {
     var t = root.hoveredEntry
-    if (!t || root.isMinimized(t)) { root.previewValid = false; return }
+    if (!t || root.isHidden(t)) { root.previewValid = false; return }
     var ipc = t.lastIpcObject
     if (!ipc || !ipc.at || !ipc.size) { root.previewValid = false; return }
     var geom = ipc.at[0] + "," + ipc.at[1] + " " + ipc.size[0] + "x" + ipc.size[1]
@@ -370,7 +421,7 @@ BarWidget {
             textFormat: Text.PlainText
             visible: !root.previewValid
             width: parent.width
-            text: root.hoveredEntry && root.isMinimized(root.hoveredEntry) ? "Minimized" : "No preview available"
+            text: root.hoveredEntry && root.isHidden(root.hoveredEntry) ? "Hidden" : "No preview available"
             color: Qt.darker(Color.foreground, 1.4)
             font.family: Style.font.family
             font.pixelSize: Style.font.bodySmall
@@ -396,7 +447,7 @@ BarWidget {
 
         readonly property string label: root.labelFor(modelData)
         readonly property bool focused: root.isFocused(modelData)
-        readonly property bool minimizedState: root.isMinimized(modelData)
+        readonly property bool hiddenState: root.isHidden(modelData)
         readonly property string iconSrc: root.iconFor(modelData)
 
         width: root.perItemWidth
@@ -422,7 +473,7 @@ BarWidget {
           sourceSize.height: height * Screen.devicePixelRatio
           fillMode: Image.PreserveAspectFit
           asynchronous: true
-          opacity: entry.minimizedState ? 0.4 : (entry.focused ? 1 : 0.75)
+          opacity: entry.hiddenState ? 0.4 : (entry.focused ? 1 : 0.75)
         }
 
         Text {
@@ -439,7 +490,7 @@ BarWidget {
           font.family: root.bar ? root.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.body
           elide: Text.ElideRight
-          opacity: entry.minimizedState ? 0.4 : (entry.focused ? 1 : 0.75)
+          opacity: entry.hiddenState ? 0.4 : (entry.focused ? 1 : 0.75)
         }
 
         MouseArea {
@@ -482,7 +533,7 @@ BarWidget {
 
         readonly property string label: root.labelFor(modelData)
         readonly property bool focused: root.isFocused(modelData)
-        readonly property bool minimizedState: root.isMinimized(modelData)
+        readonly property bool hiddenState: root.isHidden(modelData)
         readonly property string iconSrc: root.iconFor(modelData)
 
         width: root.barSize
@@ -505,7 +556,7 @@ BarWidget {
           sourceSize.height: height * Screen.devicePixelRatio
           fillMode: Image.PreserveAspectFit
           asynchronous: true
-          opacity: ventry.minimizedState ? 0.4 : (ventry.focused ? 1 : 0.75)
+          opacity: ventry.hiddenState ? 0.4 : (ventry.focused ? 1 : 0.75)
         }
 
         MouseArea {

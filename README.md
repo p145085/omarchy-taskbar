@@ -1,6 +1,6 @@
 # Omarchy Taskbar
 
-A real taskbar for the [Omarchy](https://omarchy.org/) bar (Hyprland + Quickshell). Lists open windows, filtered to whichever monitor the bar instance is on, with app icons, click-to-focus, minimize, and a hover preview.
+A real taskbar for the [Omarchy](https://omarchy.org/) bar (Hyprland + Quickshell). Lists open windows, filtered to whichever monitor the bar instance is on, with app icons, click-to-focus, hide/restore, and a hover preview.
 
 ![Taskbar preview](preview.png)
 
@@ -11,7 +11,7 @@ Hyprland is a tiling compositor with no native minimize and no built-in taskbar/
 ## Features
 
 - **Per-monitor window list** — each bar instance shows only the windows on its own monitor, not every window on the system.
-- **Click to focus, click again to minimize** — clicking an unfocused entry focuses it; clicking the already-focused entry "minimizes" it. Hyprland has no native minimize, so this works by parking the window on a dedicated hidden special workspace and restoring it to your current workspace on click.
+- **Click to focus, click again to hide** — clicking an unfocused entry focuses it; clicking the already-focused entry hides it. Hyprland has no native minimize, so this works by parking the window on its own private hidden special workspace and restoring it to your current workspace on click.
 - **Middle/right-click to close.**
 - **App icons**, resolved from the window's class via the system icon theme, with a generic fallback for apps that don't match one (PWAs, some Electron apps).
 - **Auto-fit width** — the row never overlaps the bar's center section (clock, etc.); it shrinks entries to fit, and once there's no room left for readable labels it collapses to a compact icon-only strip instead of unreadable slivers of text.
@@ -54,7 +54,7 @@ Set these on the widget's entry in `~/.config/omarchy/shell.json` (`bar.layout.<
 ## Known limitations
 
 - Hover preview is a fresh screenshot on a timer (~1.2s), not a continuous video feed — expect a little lag versus the real window.
-- Minimize/restore is address-based Hyprland IPC, not a real compositor-level minimize (Hyprland doesn't have one).
+- Hide/restore is address-based Hyprland IPC via a private special workspace per window, not a real compositor-level minimize (Hyprland doesn't have one).
 - `centerMargin` is a fixed guess at the center section's width, not measured live — there's no bar API for widgets to negotiate space with each other.
 
 ## License
