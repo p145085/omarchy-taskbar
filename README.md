@@ -26,14 +26,14 @@ Hyprland is a tiling compositor with no native minimize and no built-in taskbar/
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<your-username>/omarchy-taskbar.git --enable --yes
+omarchy plugin add https://github.com/p145085/omarchy-taskbar.git --enable --yes
 omarchy bar move emila.taskbar --section left
 ```
 
 Or by hand:
 
 ```bash
-git clone https://github.com/<your-username>/omarchy-taskbar.git ~/.config/omarchy/plugins/emila.taskbar
+git clone https://github.com/p145085/omarchy-taskbar.git ~/.config/omarchy/plugins/emila.taskbar
 omarchy-shell shell rescanPlugins
 omarchy plugin enable emila.taskbar left
 ```
